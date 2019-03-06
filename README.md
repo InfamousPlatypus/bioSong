@@ -1,12 +1,14 @@
 # bioSong
-A tool for getting xeno-canto bird calls and transforming them for use in TensorFlow&nbsp;
+A tool for getting xeno-canto bird calls and transforming them for use in TensorFlow
 
 
-bioSong is a work in progress. There is currently no error checking. Use at your own risk&nbsp;
+bioSong is a work in progress. There is currently no error checking. Use at your own risk
 
-bioSong connects to the Xeno-Canto API allowing batch downloading of bird calls from a specific species or cournty. Sub-species is currently not allowed.&nbsp;
+bioSong connects to the Xeno-Canto API allowing batch downloading of bird calls from a specific species or cournty. Sub-species is currently not allowed.
     .mp3 files are downloaded for user specified search criteria
+
     .mp3 files are converted to .wav
+
     48k wave files are downsampled to 44.1k
     only 44.1k files are processed all others are currently ignored
     wav files are segmented into 500ms samples with a 150ms offset
