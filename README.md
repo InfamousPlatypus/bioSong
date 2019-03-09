@@ -38,7 +38,7 @@ bioSong connects to the Xeno-Canto API allowing batch downloading of bird calls 
    2. Allow searching for species recordings from specific countries
    3. GUI development
    4. User input error checking
-   5. Develope TensorFlow integration
+   5. Develop TensorFlow integration
    
    
          -use to train models for image recognition
