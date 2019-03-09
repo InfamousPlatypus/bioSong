@@ -31,3 +31,14 @@ bioSong connects to the Xeno-Canto API allowing batch downloading of bird calls 
         
         
    ... .png files are outputted for each window to be used in TensorFlow for image recognition
+   
+   
+   Upcoming changes and planned features
+   1. Allow searching for sub-species
+   2. Allow searching for species recordings from specific countries
+   3. GUI development
+   4. User input error checking
+   5. Develope TensorFlow integration
+         -use to train models for image recognition
+         -test on personal recordings from Dominica
+   6. Allow users to pick STFT variables
