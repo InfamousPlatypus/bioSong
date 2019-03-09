@@ -39,6 +39,12 @@ bioSong connects to the Xeno-Canto API allowing batch downloading of bird calls 
    3. GUI development
    4. User input error checking
    5. Develope TensorFlow integration
+   
+   
          -use to train models for image recognition
+         
+         
          -test on personal recordings from Dominica
+         
+         
    6. Allow users to pick STFT variables
