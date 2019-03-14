@@ -436,7 +436,7 @@ class ConversionPage(tk.Frame):
         input_frame.pack(side="left", fill='both')
 
         main_label = ttk.Label(input_frame, text="Convert .mp3 to .wav", font=Large_Font)
-        data_button = ttk.Button(input_frame, text="Select Data", command = lambda: self.get_data())
+        data_button = ttk.Button(input_frame, text="Select Data", command = lambda: self.fill_list())
         convert_button = ttk.Button(input_frame, text="Convert", command = lambda: self.createDir(path))
 
         main_label.grid(row=0, column=0, padx=10, pady=10)
@@ -472,20 +472,15 @@ class ConversionPage(tk.Frame):
         self.status_label = ttk.Label(self, text="", border=1)
         self.status_label.pack(side="bottom", fill='x')
 
-
-    def get_data(self):
-        global path
-        path = set_dir()
-        self.fill_list(path)
-
-
     def createDir(self, path):
         wav_path = path + "/wav files/"
         if not os.path.exists(wav_path):
             os.makedirs(wav_path)
         self.convert_mp3(path, wav_path)
 
-    def fill_list(self, path):
+    def fill_list(self):
+        global path
+        path = set_dir()
         for file in os.listdir(path):
             if file.endswith('.mp3'):
                 self.data_list.insert("end", file)
@@ -524,7 +519,7 @@ class ResamplePage(tk.Frame):
         input_frame.pack(side="left", fill='both')
 
         main_label = ttk.Label(input_frame, text="Resample", font=Large_Font)
-        data_button = ttk.Button(input_frame, text="Select Data", command = lambda: self.get_data())
+        data_button = ttk.Button(input_frame, text="Select Data", command = lambda: self.fill_list())
         resample_button = ttk.Button(input_frame, text="Resample", command = lambda: self.createDir(path))
         self.up = tk.IntVar()
         self.up_sample = ttk.Checkbutton(input_frame, text="Upsample", variable = self.up)
@@ -580,12 +575,6 @@ class ResamplePage(tk.Frame):
         self.status_label.pack(side="bottom", fill='x')
 
 
-    def get_data(self):
-        global path
-        path = set_dir()
-        self.fill_list(path)
-
-
     def createDir(self, path):
         temp = self.sample_rate.get()
         rate = int(temp.strip(" Hz"))
@@ -594,7 +583,9 @@ class ResamplePage(tk.Frame):
             os.makedirs(sample_path)
         self.resample(path, sample_path)
 
-    def fill_list(self, path):
+    def fill_list(self):
+        global path
+        path = set_dir()
         for file in os.listdir(path):
             if file.endswith('.wav'):
                 x, rate = librosa.load(path + "/" + file, sr=None)
@@ -655,7 +646,7 @@ class StftPage(tk.Frame):
         window_frame.pack(side = "top", fill='both')
 
         main_label = ttk.Label(window_frame, text="STFT", font=Large_Font)
-        data_button = ttk.Button(window_frame, text="Select Data", command = lambda: self.get_data())
+        data_button = ttk.Button(window_frame, text="Select Data")
         
         segment_size_label = ttk.Label(window_frame, text="Segment size (ms):")
         self.segment_size = ttk.Entry(window_frame, width = 10)
@@ -670,7 +661,7 @@ class StftPage(tk.Frame):
         self.stft_window["values"] = ("boxcar", "triang", "blackman", "hamming", "hann", "bartlett", "flattop", "parzen", "bohman", "blackmanharris", "nuttall", "barthann")
         zero_pad_label = ttk.Label(window_frame, text="Zero padding (Blank = none):")
         self.zero_pad = ttk.Entry(window_frame, width = 15)
-        start_button = ttk.Button(window_frame, text="Start", command = lambda: self.createDir(path))
+        start_button = ttk.Button(window_frame, text="Start")
 
         main_label.grid(row=0, column=0, padx=10, pady=5, sticky="w")
         data_button.grid(row=1, column=0, padx=10, pady=5, sticky="w")
@@ -745,65 +736,6 @@ class StftPage(tk.Frame):
 
         self.status_label = ttk.Label(self, text="", border=1)
         self.status_label.pack(side="bottom", fill='x')
-
-
-    def get_data(self):
-        global path
-        path = set_dir()
-        self.fill_list(path)
-
-
-    def createDir(self, path):
-        temp = self.sample_rate.get()
-        rate = int(temp.strip(" Hz"))
-        sample_path = path + "/resampled" + str(rate) + "/"
-        if not os.path.exists(sample_path):
-            os.makedirs(sample_path)
-        self.resample(path, sample_path)
-
-    def fill_list(self, path):
-        for file in os.listdir(path):
-            if file.endswith('.wav'):
-                x, rate = librosa.load(path + "/" + file, sr=None)
-                self.data_list.insert("", "end", iid=file, text=file, values=(rate))
-                self.status_label.config(text="Getting recordings...")
-                self.update()
-            self.status_label.config(text="Done")
-
-    def resample(self, path, sample_path):
-        i = 0
-        global progress_var
-        progress_var = tk.DoubleVar()
-        progress = 0
-        progress_step = float(100.0/len(self.data_list.get_children()))
-        up = self.up.get()
-        down = self.down.get()
-        temp = self.sample_rate.get()
-        new_rate = int(temp.strip(" Hz"))
-        for file in os.listdir(path):
-            if file.endswith('.wav'):
-                audData, rate = librosa.load(path + "/" + file, sr=None)
-                if up == 1 and down == 0:
-                    if rate <= new_rate:
-                        temp = librosa.resample(audData, rate, new_rate)
-                        librosa.output.write_wav(sample_path + file, temp, sr=new_rate)
-                if up == 0 and down == 1:
-                    if rate >= new_rate:
-                        temp = librosa.resample(audData, rate, new_rate)
-                        librosa.output.write_wav(sample_path + file, temp, sr=new_rate)
-                if up == 1 and down == 1:
-                    if rate != new_rate:
-                        temp = librosa.resample(audData, rate, new_rate)
-                        librosa.output.write_wav(sample_path + file, temp, sr=new_rate)
-                    if rate == new_rate:
-                        librosa.output.write_wav(sample_path + file, audData, sr=rate)
-                self.status_label.config(text = "Resampling " + file + " to " + str(new_rate) + "Hz")
-                self.data_list.delete(file)
-                self.update()
-                progress += progress_step
-                progress_var.set(progress)
-                i += 1   
-        self.status_label.config(text="Done")
 # -----------------------------------------------------------
 
 
