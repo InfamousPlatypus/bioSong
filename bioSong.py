@@ -6,13 +6,21 @@ import urllib
 import urllib.request
 import json
 import os
+import scipy.io.wavfile
+import matplotlib.pyplot as plt
+import pydub
+import numpy as np
+from scipy import signal
+from scipy.fftpack import fft, fftshift
+import librosa
+#from tkfilebrowser import askopendirname
 
 xc_API = "http://www.xeno-canto.org/api/2/recordings?query="
 Large_Font = ("Verdana", 12)
 
 
 def set_dir():
-    path = filedialog.askdirectory(initialdir="/", title="Select A Directory")
+    path = filedialog.askdirectory(initialdir=os.getcwd(), title="Select A Directory")
     os.chdir(path)
     return(path)
 
@@ -31,6 +39,19 @@ def question_popup(title, question, action):
 def hasNumbers(inputString):
     return any(char.isdigit() for char in inputString)
 
+# Sort search data
+def sortby(tree, col, descending):
+    """Sort tree contents when a column is clicked on."""
+    # grab values to sort
+    data = [(tree.set(child, col), child)
+            for child in tree.get_children('')]
+    # reorder data
+    data.sort(reverse=descending)
+    for indx, item in enumerate(data):
+        tree.move(item[1], '', indx)
+    # switch the heading so that it will sort in the opposite direction
+    tree.heading(col,
+                    command=lambda col=col: sortby(tree, col, int(not descending)))
 
 class bioSong(tk.Tk):
 
@@ -58,15 +79,15 @@ class bioSong(tk.Tk):
         menubar.add_cascade(label="Xeno-Canto", menu=xc_menu)
 
         datamenu = tk.Menu(menubar, tearoff=0)
-        datamenu.add_command(label="Convert to MP3", command=set_dir)
-        datamenu.add_command(label="Resample", command=set_dir)
-        datamenu.add_command(label="STFT", command=set_dir)
+        datamenu.add_command(label="Convert to wav", command=lambda: self.show_frame(ConversionPage))
+        datamenu.add_command(label="Resample", command=lambda: self.show_frame(ResamplePage))
+        datamenu.add_command(label="STFT", command=lambda: self.show_frame(StftPage))
         menubar.add_cascade(label="Data Manipulation", menu=datamenu)
 
         tk.Tk.config(self, menu=menubar)
 
         self.frames = {}
-        for f in (StartPage, SearchPage):
+        for f in (StartPage, SearchPage, ConversionPage, ResamplePage, StftPage):
             frame = f(container, self)
             self.frames[f] = frame
             frame.grid(row=0, column=0, sticky="nsew")
@@ -83,15 +104,17 @@ class bioSong(tk.Tk):
     def get_page(self, page_name):
         return self.frames[page_name]
 # -----------------------------------------------------------
-#
 
 
 class StartPage(tk.Frame):
 
     def __init__(self, parent, controller):
-        tk.Frame.__init__(self, parent)
+        tk.Frame.__init__(self, parent, background="white")
         label = ttk.Label(self, text="start page", font=Large_Font)
         label.pack()
+
+        self.status_label = ttk.Label(self, text=" ", border=1)
+        self.status_label.pack(side="bottom", fill='x')
 # -----------------------------------------------------------
 
 
@@ -107,7 +130,6 @@ class SearchPage(tk.Frame):
         advanced_search = ttk.Frame(tab_control)
         download = ttk.Frame(tab_control)
         tab_control.pack(expand=1, fill="both")
-
 
         # Search tab -----------------------------------------
         tab_control.add(normal_search, text="Search")
@@ -133,7 +155,7 @@ class SearchPage(tk.Frame):
 
         # Advanced Search tab -----------------------------------------
         tab_control.add(advanced_search, text="Advanced Search")
-
+        ttk.Label(advanced_search, text="Not Supported").grid(row=0, column=2, sticky="e", padx=20, pady=10)
 
         # Download tab -----------------------------------------
         tab_control.add(download, text="Download")
@@ -142,35 +164,35 @@ class SearchPage(tk.Frame):
         self.download_selected_btn = ttk.Button(download, text="Download Selected", command=lambda: self.xc_download_selected_recs(temp))
 
         self.download_all_btn.grid(row=0, column=0, sticky="e", padx=20, pady=10)
-        self.download_selected_btn.grid(row=0, column=1, sticky="w", padx=20, pady=10)
+        self.download_selected_btn.grid(row=0, column=1, sticky="w", padx=10, pady=10)
 
 
 
-        results_frame = ttk.Frame(self, relief="groove", borderwidth = 1)
+        results_frame = tk.Frame(self, relief="groove", borderwidth = 1, background="white")
         results_frame.pack(fill='both', expand=True)
         results_frame.grid_columnconfigure(0, weight=1)
         results_frame.grid_rowconfigure(1, weight=1)
         
-        self.results_label = ttk.Label(results_frame, text="Results: ")
+        self.results_label = ttk.Label(results_frame, text="Results: ", background="white")
         self.search_results = ttk.Treeview(results_frame)
         self.search_results['columns'] = (
             "length", "country", "location", "type", "cat")
-        self.search_results.heading("#0", text='Species', anchor='w', command=lambda: self.sortby(
+        self.search_results.heading("#0", text='Species', anchor='w', command=lambda: sortby(
             self.search_results, "#0", False))
         self.search_results.column("#0", anchor="w", width=200)
-        self.search_results.heading("length", text='Length (s)', anchor='w', command=lambda: self.sortby(
+        self.search_results.heading("length", text='Length (s)', anchor='w', command=lambda: sortby(
             self.search_results, "length", False))
         self.search_results.column('length', anchor='w', width=100)
-        self.search_results.heading('country', text='Country', anchor='w', command=lambda: self.sortby(
+        self.search_results.heading('country', text='Country', anchor='w', command=lambda: sortby(
             self.search_results, "country", False))
         self.search_results.column('country', anchor='w', width=125)
-        self.search_results.heading('location', text='Location', anchor='w', command=lambda: self.sortby(
+        self.search_results.heading('location', text='Location', anchor='w', command=lambda: sortby(
             self.search_results, "location", False))
         self.search_results.column('location', anchor='w', width=125)
-        self.search_results.heading('type', text='Type', anchor='w', command=lambda: self.sortby(
+        self.search_results.heading('type', text='Type', anchor='w', command=lambda: sortby(
             self.search_results, "type", False))
         self.search_results.column('type', anchor='w', width=100)
-        self.search_results.heading('cat', text='Cat.nr', anchor='w', command=lambda: self.sortby(
+        self.search_results.heading('cat', text='Cat.nr', anchor='w', command=lambda: sortby(
             self.search_results, "cat", False))
         self.search_results.column('cat', anchor='w', width=150)
         treeYScroll = ttk.Scrollbar(results_frame, orient="vertical")
@@ -187,9 +209,9 @@ class SearchPage(tk.Frame):
 
         self.status_label = ttk.Label(self, text="", border=1)
         self.status_label.pack(side="bottom", fill='x')
-
-    num_recs = None
+    
     temp = None
+    num_recs = None
     # Checks if user has actually input something
     def chk_search_input(self, species, country):
         species = species.strip()
@@ -312,84 +334,33 @@ class SearchPage(tk.Frame):
                 self.search_results.insert(
                     "", "end", text=ge + " " + sp + " - " + en, values=(le, co, lo, ty, "XC" + nr))
 
-    # Sort search data
-    def sortby(self, tree, col, descending):
-        """Sort tree contents when a column is clicked on."""
-        # grab values to sort
-        data = [(tree.set(child, col), child)
-                for child in tree.get_children('')]
-
-        # reorder data
-        data.sort(reverse=descending)
-        for indx, item in enumerate(data):
-            tree.move(item[1], '', indx)
-
-        # switch the heading so that it will sort in the opposite direction
-        tree.heading(col,
-                     command=lambda col=col: self.sortby(tree, col, int(not descending)))
-
     def xc_download_all_recs(self, temp):
-        path = set_dir()
-        self.status_label.config(text="Downloading...")
-        self.update_idletasks()
-        self.popup = tk.Toplevel()
-        self.popup.geometry("300x200")
-        tk.Label(self.popup, text="Downloading recording: ").pack(pady = 5)
-        curr_dl = tk.Label(self.popup, text="")
-        curr_dl.pack() 
-        tk.Label(self.popup, text=" of " + num_recs).pack()    
-        progress = 0
-        progress_var = tk.DoubleVar()
-        progress_bar = ttk.Progressbar(
-            self.popup, variable=progress_var, maximum=100)
-        progress_bar.pack(fill="x", anchor="w", expand="yes", pady = 5, padx = 5)
-        self.cancel_btn = ttk.Button(self.popup, text="Cancel", command=lambda: self.stop()) 
-        self.cancel_btn.pack(pady = 10)     
-        self.popup.pack_slaves()
-        progress_step = float(100.0/len(temp["recordings"]))
-        global downloading
-        downloading = True
-        if downloading == True:
-            count = 0
-            for p in temp["recordings"]:
-                recording_url = "https:" + p["file"]
-                download_file = "XC" + p["id"] + " - " + p["en"] + \
-                    " - " + p["gen"] + " " + p["sp"] + ".mp3"
-                full_filename = os.path.join(path, download_file)
-                urllib.request.urlretrieve(recording_url, full_filename)
-                self.popup.update()
-                curr_dl.configure(text = count)
-                progress += progress_step
-                progress_var.set(progress)
-                count +=1
-            self.status_label.config(text="")
-
-    def xc_download_selected_recs(self, temp):
-        path = set_dir()
-        self.status_label.config(text="Downloading...")
-        self.update_idletasks()
-        self.popup = tk.Toplevel()
-        self.popup.geometry("300x200")
-        tk.Label(self.popup, text="Downloading recording: ").pack(pady = 5)
-        curr_dl = tk.Label(self.popup, text="")
-        curr_dl.pack() 
-        tk.Label(self.popup, text=" of " + num_recs).pack()    
-        progress = 0
-        progress_var = tk.DoubleVar()
-        progress_bar = ttk.Progressbar(
-            self.popup, variable=progress_var, maximum=100)
-        progress_bar.pack(fill="x", anchor="w", expand="yes", pady = 5, padx = 5)
-        self.cancel_btn = ttk.Button(self.popup, text="Cancel", command=lambda: self.stop()) 
-        self.cancel_btn.pack(pady = 10)     
-        self.popup.pack_slaves()
-        progress_step = float(100.0/len(temp["recordings"]))
-        global downloading
-        downloading = True
-        selected_items = self.search_results.selection()
-        for selected_item in selected_items:
-            cat_nr = selected_item["cat"]
-            for p in temp["recordings"]:
-                if cat_nr == p["id"]:
+        if temp == None:
+            error_popup("Warning", "No recordings to download.")
+        else:
+            path = set_dir()
+            self.status_label.config(text="Downloading...")
+            self.update_idletasks()
+            self.popup = tk.Toplevel()
+            self.popup.geometry("300x200")
+            tk.Label(self.popup, text="Downloading recording: ").pack(pady = 5)
+            curr_dl = tk.Label(self.popup, text="")
+            curr_dl.pack() 
+            tk.Label(self.popup, text=" of " + num_recs).pack()    
+            progress = 0
+            progress_var = tk.DoubleVar()
+            progress_bar = ttk.Progressbar(
+                self.popup, variable=progress_var, maximum=100)
+            progress_bar.pack(fill="x", anchor="w", expand="yes", pady = 5, padx = 5)
+            self.cancel_btn = ttk.Button(self.popup, text="Cancel", command=lambda: self.stop()) 
+            self.cancel_btn.pack(pady = 10)     
+            self.popup.pack_slaves()
+            progress_step = float(100.0/len(temp["recordings"]))
+            global downloading
+            downloading = True
+            if downloading == True:
+                count = 0
+                for p in temp["recordings"]:
                     recording_url = "https:" + p["file"]
                     download_file = "XC" + p["id"] + " - " + p["en"] + \
                         " - " + p["gen"] + " " + p["sp"] + ".mp3"
@@ -400,7 +371,48 @@ class SearchPage(tk.Frame):
                     progress += progress_step
                     progress_var.set(progress)
                     count +=1
-        self.status_label.config(text="")
+                self.status_label.config(text="")
+
+    def xc_download_selected_recs(self, temp):
+        if temp == None:
+            error_popup("Warning", "No recordings to download.")
+        else:
+            path = set_dir()
+            self.status_label.config(text="Downloading...")
+            self.update_idletasks()
+            self.popup = tk.Toplevel()
+            self.popup.geometry("300x200")
+            tk.Label(self.popup, text="Downloading recording: ").pack(pady = 5)
+            curr_dl = tk.Label(self.popup, text="")
+            curr_dl.pack() 
+            tk.Label(self.popup, text=" of " + num_recs).pack()    
+            progress = 0
+            progress_var = tk.DoubleVar()
+            progress_bar = ttk.Progressbar(
+                self.popup, variable=progress_var, maximum=100)
+            progress_bar.pack(fill="x", anchor="w", expand="yes", pady = 5, padx = 5)
+            self.cancel_btn = ttk.Button(self.popup, text="Cancel", command=lambda: self.stop()) 
+            self.cancel_btn.pack(pady = 10)     
+            self.popup.pack_slaves()
+            progress_step = float(100.0/len(temp["recordings"]))
+            global downloading
+            downloading = True
+            selected_items = self.search_results.selection()
+            for selected_item in selected_items:
+                cat_nr = selected_item["cat"]
+                for p in temp["recordings"]:
+                    if cat_nr == p["id"]:
+                        recording_url = "https:" + p["file"]
+                        download_file = "XC" + p["id"] + " - " + p["en"] + \
+                            " - " + p["gen"] + " " + p["sp"] + ".mp3"
+                        full_filename = os.path.join(path, download_file)
+                        urllib.request.urlretrieve(recording_url, full_filename)
+                        self.popup.update()
+                        curr_dl.configure(text = count)
+                        progress += progress_step
+                        progress_var.set(progress)
+                        count +=1
+            self.status_label.config(text="")
 
     def stop(self):
         global downloading
@@ -410,6 +422,388 @@ class SearchPage(tk.Frame):
         self.popup.destroy()
 
 
+# -----------------------------------------------------------
+
+
+class ConversionPage(tk.Frame):
+
+    def __init__(self, parent, controller):
+        tk.Frame.__init__(self, parent)
+
+        top_frame = ttk.Frame(self)
+        top_frame.pack(fill="both")
+        input_frame = ttk.Frame(top_frame)
+        input_frame.pack(side="left", fill='both')
+
+        main_label = ttk.Label(input_frame, text="Convert .mp3 to .wav", font=Large_Font)
+        data_button = ttk.Button(input_frame, text="Select Data", command = lambda: self.get_data())
+        convert_button = ttk.Button(input_frame, text="Convert", command = lambda: self.createDir(path))
+
+        main_label.grid(row=0, column=0, padx=10, pady=10)
+        data_button.grid(row=0, column=2, padx=10, pady=10)
+        convert_button.grid(row=0, column=3, padx=10, pady=10)
+
+        progress_frame = ttk.Frame(top_frame)
+        progress_frame.pack(side = "right", fill="both")
+        progress_var = tk.DoubleVar()
+        progress_label = ttk.Label(progress_frame, text="Progress: ")
+        progress_label.pack(side = "left", anchor="s", pady = 5)
+        self.progress_bar = ttk.Progressbar(progress_frame, variable=progress_var, maximum=100)
+        self.progress_bar.pack(fill="x", anchor="sw", expand="yes", pady = 5, padx = 5)
+
+        data_frame = tk.Frame(self, relief="groove", borderwidth = 1, background="white")
+        data_frame.pack(fill='both', expand=True)
+        data_frame.grid_columnconfigure(0, weight=1)
+        data_frame.grid_rowconfigure(1, weight=1)
+
+        files_label = ttk.Label(data_frame, text="Files to convert: ", background="white")
+        self.data_list = tk.Listbox(data_frame)
+        listYScroll = ttk.Scrollbar(data_frame, orient="vertical")
+        listYScroll.configure(command=self.data_list.yview)
+        self.data_list.configure(yscrollcommand=listYScroll.set)
+
+        self.data_list.rowconfigure(0, weight=1)
+        self.data_list.columnconfigure(0, weight=1)
+
+        files_label.grid(row=0, column=0, sticky="w", pady=2)
+        self.data_list.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
+        listYScroll.grid(row=1, column=0, sticky="nse", pady=6, padx=7)
+
+        self.status_label = ttk.Label(self, text="", border=1)
+        self.status_label.pack(side="bottom", fill='x')
+
+
+    def get_data(self):
+        global path
+        path = set_dir()
+        self.fill_list(path)
+
+
+    def createDir(self, path):
+        wav_path = path + "/wav files/"
+        if not os.path.exists(wav_path):
+            os.makedirs(wav_path)
+        self.convert_mp3(path, wav_path)
+
+    def fill_list(self, path):
+        for file in os.listdir(path):
+            if file.endswith('.mp3'):
+                self.data_list.insert("end", file)
+
+    def convert_mp3(self, path, wav_path):
+        i = 0
+        global progress_var
+        progress_var = tk.DoubleVar()
+        progress = 0
+        progress_step = float(100.0/self.data_list.size())
+        for file in os.listdir(path):
+            if file.endswith('.mp3'):
+                mp3 = pydub.AudioSegment.from_mp3(file)
+                self.status_label.config(text = "Converting " + file + " to .wav")
+                file_name = os.path.splitext(file)[0] + "-" + str(i)
+                mp3.export(wav_path + file_name + ".wav", format="wav")
+                coverted = self.data_list.get(0, "end").index(file)
+                self.data_list.delete(coverted)
+                self.update()
+                progress += progress_step
+                progress_var.set(progress)
+                i += 1
+                
+        self.status_label.config(text="Done")
+# -----------------------------------------------------------
+
+
+class ResamplePage(tk.Frame):
+
+    def __init__(self, parent, controller):
+        tk.Frame.__init__(self, parent)
+
+        top_frame = ttk.Frame(self)
+        top_frame.pack(fill="both")
+        input_frame = ttk.Frame(top_frame)
+        input_frame.pack(side="left", fill='both')
+
+        main_label = ttk.Label(input_frame, text="Resample", font=Large_Font)
+        data_button = ttk.Button(input_frame, text="Select Data", command = lambda: self.get_data())
+        resample_button = ttk.Button(input_frame, text="Resample", command = lambda: self.createDir(path))
+        self.up = tk.IntVar()
+        self.up_sample = ttk.Checkbutton(input_frame, text="Upsample", variable = self.up)
+        self.down = tk.IntVar()
+        self.down_sample = ttk.Checkbutton(input_frame, text="Downsample", variable = self.down)
+        sample_label = ttk.Label(input_frame, text="Select resample rate:")
+        self.sample_rate = ttk.Combobox(input_frame, state = "readonly")
+        self.sample_rate["values"] = ("48000 Hz", "44100 Hz", "32000 Hz", "22050 Hz")
+
+
+        main_label.grid(row=0, column=0, padx=10, pady=10, sticky="w")
+        data_button.grid(row=1, column=0, padx=10, pady=5, sticky="w")
+        self.up_sample.grid(row=0, column=3, padx=10, pady=2, sticky="w")
+        self.down_sample.grid(row=1, column=3, padx=10, pady=2, sticky="w")
+        sample_label.grid(row=0, column=4, padx=10, pady=2, sticky="w")
+        self.sample_rate.grid(row=1, column=4, padx=10, pady=2, sticky="w")
+        resample_button.grid(row=0, column=5, rowspan = 2, padx=10, pady=10, sticky="nsew")
+
+        progress_frame = ttk.Frame(top_frame)
+        progress_frame.pack(side = "right", fill="both")
+        progress_var = tk.DoubleVar()
+        progress_label = ttk.Label(progress_frame, text="Progress: ")
+        progress_label.pack(side = "left", anchor="s", pady = 5)
+        self.progress_bar = ttk.Progressbar(progress_frame, variable=progress_var, maximum=100)
+        self.progress_bar.pack(fill="x", anchor="sw", expand="yes", pady = 5, padx = 5)
+
+        data_frame = tk.Frame(self, relief="groove", borderwidth = 1, background="white")
+        data_frame.pack(fill='both', expand=True)
+        data_frame.grid_columnconfigure(0, weight=1)
+        data_frame.grid_rowconfigure(1, weight=1)
+
+        files_label = ttk.Label(data_frame, text="Files to resample: ", background="white")
+        self.data_list = ttk.Treeview(data_frame)
+        self.data_list['columns'] = ("rate")
+        self.data_list.heading("#0", text='File name', anchor='w', command=lambda: sortby(
+        self.data_list, "#0", False))
+        self.data_list.column("#0", anchor="w", width=200)
+        self.data_list.heading("rate", text="Rate (Hz)", anchor='w', command=lambda: sortby(
+        self.data_list, "rate", False))
+        self.data_list.column('rate', anchor='w', width=100)
+        listYScroll = ttk.Scrollbar(data_frame, orient="vertical")
+        listYScroll.configure(command=self.data_list.yview)
+        self.data_list.configure(yscrollcommand=listYScroll.set)
+
+        self.data_list.rowconfigure(0, weight=1)
+        self.data_list.columnconfigure(0, weight=1)
+
+        files_label.grid(row=0, column=0, sticky="w", pady=2)
+        self.data_list.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
+        listYScroll.grid(row=1, column=0, sticky="nse", pady=6, padx=7)
+
+        self.status_label = ttk.Label(self, text="", border=1)
+        self.status_label.pack(side="bottom", fill='x')
+
+
+    def get_data(self):
+        global path
+        path = set_dir()
+        self.fill_list(path)
+
+
+    def createDir(self, path):
+        temp = self.sample_rate.get()
+        rate = int(temp.strip(" Hz"))
+        sample_path = path + "/resampled" + str(rate) + "/"
+        if not os.path.exists(sample_path):
+            os.makedirs(sample_path)
+        self.resample(path, sample_path)
+
+    def fill_list(self, path):
+        for file in os.listdir(path):
+            if file.endswith('.wav'):
+                x, rate = librosa.load(path + "/" + file, sr=None)
+                self.data_list.insert("", "end", iid=file, text=file, values=(rate))
+                self.status_label.config(text="Getting recordings...")
+                self.update()
+            self.status_label.config(text="Done")
+
+    def resample(self, path, sample_path):
+        i = 0
+        global progress_var
+        progress_var = tk.DoubleVar()
+        progress = 0
+        progress_step = float(100.0/len(self.data_list.get_children()))
+        up = self.up.get()
+        down = self.down.get()
+        temp = self.sample_rate.get()
+        new_rate = int(temp.strip(" Hz"))
+        for file in os.listdir(path):
+            if file.endswith('.wav'):
+                audData, rate = librosa.load(path + "/" + file, sr=None)
+                if up == 1 and down == 0:
+                    if rate <= new_rate:
+                        temp = librosa.resample(audData, rate, new_rate)
+                        librosa.output.write_wav(sample_path + file, temp, sr=new_rate)
+                if up == 0 and down == 1:
+                    if rate >= new_rate:
+                        temp = librosa.resample(audData, rate, new_rate)
+                        librosa.output.write_wav(sample_path + file, temp, sr=new_rate)
+                if up == 1 and down == 1:
+                    if rate != new_rate:
+                        temp = librosa.resample(audData, rate, new_rate)
+                        librosa.output.write_wav(sample_path + file, temp, sr=new_rate)
+                    if rate == new_rate:
+                        librosa.output.write_wav(sample_path + file, audData, sr=rate)
+                self.status_label.config(text = "Resampling " + file + " to " + str(new_rate) + "Hz")
+                self.data_list.delete(file)
+                self.update()
+                progress += progress_step
+                progress_var.set(progress)
+                i += 1   
+        self.status_label.config(text="Done")
+# -----------------------------------------------------------
+
+
+class StftPage(tk.Frame):
+
+    def __init__(self, parent, controller):
+        tk.Frame.__init__(self, parent)
+
+        top_frame = ttk.Frame(self)
+        top_frame.pack(fill="both")
+
+        input_frame = ttk.Frame(top_frame)
+        input_frame.pack(side = "left", fill='both')
+
+        window_frame = ttk.Frame(input_frame)
+        window_frame.pack(side = "top", fill='both')
+
+        main_label = ttk.Label(window_frame, text="STFT", font=Large_Font)
+        data_button = ttk.Button(window_frame, text="Select Data", command = lambda: self.get_data())
+        
+        segment_size_label = ttk.Label(window_frame, text="Segment size (ms):")
+        self.segment_size = ttk.Entry(window_frame, width = 10)
+        segment_step_label = ttk.Label(window_frame, text="Segment step size (ms):")
+        self.segment_step = ttk.Entry(window_frame, width = 10)
+        window_size_label = ttk.Label(window_frame, text="Window size:")
+        self.window_size = ttk.Entry(window_frame, width = 10)
+        window_step_label = ttk.Label(window_frame, text="Window step size:")
+        self.window_step = ttk.Entry(window_frame, width = 10)
+        stft_window_label = ttk.Label(window_frame, text="Select window:")
+        self.stft_window = ttk.Combobox(window_frame, state = "readonly", width = 15)
+        self.stft_window["values"] = ("boxcar", "triang", "blackman", "hamming", "hann", "bartlett", "flattop", "parzen", "bohman", "blackmanharris", "nuttall", "barthann")
+        zero_pad_label = ttk.Label(window_frame, text="Zero padding (Blank = none):")
+        self.zero_pad = ttk.Entry(window_frame, width = 15)
+        start_button = ttk.Button(window_frame, text="Start", command = lambda: self.createDir(path))
+
+        main_label.grid(row=0, column=0, padx=10, pady=5, sticky="w")
+        data_button.grid(row=1, column=0, padx=10, pady=5, sticky="w")
+
+        segment_size_label.grid(row=0, column=1, padx=2, pady=5, sticky="w")
+        self.segment_size.grid(row=0, column=2, padx=2, pady=5, sticky="w")
+        segment_step_label.grid(row=1, column=1, padx=2, pady=5, sticky="w")
+        self.segment_step.grid(row=1, column=2, padx=2, pady=5, sticky="w")
+        window_size_label.grid(row=0, column=3, padx=2, pady=5, sticky="w")
+        self.window_size.grid(row=0, column=4, padx=2, pady=5, sticky="w")
+        window_step_label.grid(row=1, column=3, padx=2, pady=5, sticky="w")
+        self.window_step.grid(row=1, column=4, padx=2, pady=5, sticky="w")
+        stft_window_label.grid(row=0, column=5, padx=2, pady=5, sticky="w")
+        self.stft_window.grid(row=0, column=6, padx=2, pady=5, sticky="w")
+        zero_pad_label.grid(row=1, column=5, padx=2, pady=5, sticky="w")
+        self.zero_pad.grid(row=1, column=6, padx=2, pady=5, sticky="w")
+        start_button.grid(row=0, column=7, rowspan = 2, padx=10, pady=5, sticky="nsew")
+
+
+        stft_frame = ttk.Frame(input_frame)
+        stft_frame.pack(side = "bottom", fill='both')
+
+        boundary_label = ttk.Label(stft_frame, text="Select boundary:")
+        self.boundary = ttk.Combobox(stft_frame, state = "readonly", width = 15)
+        self.boundary["values"] = ("even", "odd", "constant", "zeros", "None")
+        padded_label = ttk.Label(stft_frame, text="Input padded:")
+        self.padded = ttk.Combobox(stft_frame, state = "readonly", width = 15)
+        self.padded["values"] = ("True", "False")
+        axis_label = ttk.Label(stft_frame, text="Set axis (default is last):")
+        self.axis = ttk.Entry(stft_frame, width = 15)
+
+        boundary_label.grid(row=0, column=0, padx=2, pady=5, sticky="w")
+        self.boundary.grid(row=0, column=1, padx=2, pady=5, sticky="w")
+        padded_label.grid(row=0, column=2, padx=2, pady=5, sticky="w")
+        self.padded.grid(row=0, column=3, padx=2, pady=5, sticky="w")
+        axis_label.grid(row=0, column=4, padx=2, pady=5, sticky="w")
+        self.axis.grid(row=0, column=5, padx=2, pady=5, sticky="w")
+
+
+        progress_frame = ttk.Frame(top_frame)
+        progress_frame.pack(side = "right", fill="both")
+        progress_var = tk.DoubleVar()
+        progress_label = ttk.Label(progress_frame, text="Progress: ")
+        progress_label.pack(side = "left", anchor="s", pady = 5)
+        self.progress_bar = ttk.Progressbar(progress_frame, variable=progress_var, maximum=100)
+        self.progress_bar.pack(fill="x", anchor="sw", expand="yes", pady = 5, padx = 5)
+
+        data_frame = tk.Frame(self, relief="groove", borderwidth = 1, background="white")
+        data_frame.pack(fill='both', expand=True)
+        data_frame.grid_columnconfigure(0, weight=1)
+        data_frame.grid_rowconfigure(1, weight=1)
+
+        files_label = ttk.Label(data_frame, text="Files to resample: ", background="white")
+        self.data_list = ttk.Treeview(data_frame)
+        self.data_list['columns'] = ("rate")
+        self.data_list.heading("#0", text='File name', anchor='w', command=lambda: sortby(
+        self.data_list, "#0", False))
+        self.data_list.column("#0", anchor="w", width=200)
+        self.data_list.heading("rate", text="Rate (Hz)", anchor='w', command=lambda: sortby(
+        self.data_list, "rate", False))
+        self.data_list.column('rate', anchor='w', width=100)
+        listYScroll = ttk.Scrollbar(data_frame, orient="vertical")
+        listYScroll.configure(command=self.data_list.yview)
+        self.data_list.configure(yscrollcommand=listYScroll.set)
+
+        self.data_list.rowconfigure(0, weight=1)
+        self.data_list.columnconfigure(0, weight=1)
+
+        files_label.grid(row=0, column=0, sticky="w", pady=2)
+        self.data_list.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
+        listYScroll.grid(row=1, column=0, sticky="nse", pady=6, padx=7)
+
+        self.status_label = ttk.Label(self, text="", border=1)
+        self.status_label.pack(side="bottom", fill='x')
+
+
+    def get_data(self):
+        global path
+        path = set_dir()
+        self.fill_list(path)
+
+
+    def createDir(self, path):
+        temp = self.sample_rate.get()
+        rate = int(temp.strip(" Hz"))
+        sample_path = path + "/resampled" + str(rate) + "/"
+        if not os.path.exists(sample_path):
+            os.makedirs(sample_path)
+        self.resample(path, sample_path)
+
+    def fill_list(self, path):
+        for file in os.listdir(path):
+            if file.endswith('.wav'):
+                x, rate = librosa.load(path + "/" + file, sr=None)
+                self.data_list.insert("", "end", iid=file, text=file, values=(rate))
+                self.status_label.config(text="Getting recordings...")
+                self.update()
+            self.status_label.config(text="Done")
+
+    def resample(self, path, sample_path):
+        i = 0
+        global progress_var
+        progress_var = tk.DoubleVar()
+        progress = 0
+        progress_step = float(100.0/len(self.data_list.get_children()))
+        up = self.up.get()
+        down = self.down.get()
+        temp = self.sample_rate.get()
+        new_rate = int(temp.strip(" Hz"))
+        for file in os.listdir(path):
+            if file.endswith('.wav'):
+                audData, rate = librosa.load(path + "/" + file, sr=None)
+                if up == 1 and down == 0:
+                    if rate <= new_rate:
+                        temp = librosa.resample(audData, rate, new_rate)
+                        librosa.output.write_wav(sample_path + file, temp, sr=new_rate)
+                if up == 0 and down == 1:
+                    if rate >= new_rate:
+                        temp = librosa.resample(audData, rate, new_rate)
+                        librosa.output.write_wav(sample_path + file, temp, sr=new_rate)
+                if up == 1 and down == 1:
+                    if rate != new_rate:
+                        temp = librosa.resample(audData, rate, new_rate)
+                        librosa.output.write_wav(sample_path + file, temp, sr=new_rate)
+                    if rate == new_rate:
+                        librosa.output.write_wav(sample_path + file, audData, sr=rate)
+                self.status_label.config(text = "Resampling " + file + " to " + str(new_rate) + "Hz")
+                self.data_list.delete(file)
+                self.update()
+                progress += progress_step
+                progress_var.set(progress)
+                i += 1   
+        self.status_label.config(text="Done")
 # -----------------------------------------------------------
 
 
